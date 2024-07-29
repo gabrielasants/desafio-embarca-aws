@@ -1,0 +1,24 @@
+service: desafio-embarca-aws
+
+provider:
+  name: aws
+  runtime: python3.10
+  region: us-east-1
+
+functions:
+  downloadCsv:
+    handler: handler.download_csv
+    package:
+      include:
+        - requirements.txt
+
+  processCsv:
+    handler: handler.process_csv
+  #
+
+resources:
+  Resources:
+    CsvBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: desafio-embarca

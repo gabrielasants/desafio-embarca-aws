@@ -1,0 +1,34 @@
+# Ignore arquivos e diretórios Python
+__pycache__/
+*.py[cod]
+
+# Ignore arquivos de ambiente virtual
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Ignore arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Ignore configurações específicas do editor
+.vscode/
+.idea/
+*.swp
+
+# Ignore diretórios e arquivos gerados pelo Serverless Framework
+.serverless/
+node_modules/
+
+# Ignore arquivos de log
+*.log
+
+# Ignore arquivos de credenciais sensíveis (certifique-se de não comitar o arquivo .env ao repositório)
+.env
+
+# Ignore arquivos de configuração do sistema operacional
+*.bak
+*.tmp
+*.old
