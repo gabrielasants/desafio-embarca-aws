@@ -4,24 +4,34 @@ import yaml
 from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
+def get_available_bucket(bucket_prefix):
+    try:
+        response = s3.list_buckets()
+        buckets = response.get('Buckets', [])
+        
+        for bucket in buckets:
+            if bucket['Name'].startswith(bucket_prefix):
+                return bucket['Name']
+        
+        raise ValueError("Nenhum bucket disponível com o prefixo fornecido.")
+    
+    except ClientError as e:
+        raise RuntimeError(f"Erro ao listar buckets: {str(e)}")
 
 def download_csv(event, context):
     try:
         with open("link.yml", "r") as file:
             data = yaml.safe_load(file)
+        
         if data is None or 'link' not in data:
             raise ValueError("Arquivo YAML está vazio ou a chave 'link' está faltando.")
         
         link = data['link']
-        
         response = requests.get(link)
         response.raise_for_status()
-
         file_name = link.split('/')[-1]
-        bucket_name = 'desafio-embarca'
-        
+        bucket_name = get_available_bucket('desafio-embarca')
         s3.put_object(Bucket=bucket_name, Key=file_name, Body=response.content)
-
         result = {
             'statusCode': 200,
             'body': {
@@ -62,6 +72,14 @@ def download_csv(event, context):
             'body': f'Erro ao carregar o arquivo YAML: {str(e)}'
         }
         print("Erro ao carregar o arquivo YAML:", error_result)
+        return error_result
+
+    except RuntimeError as e:
+        error_result = {
+            'statusCode': 500,
+            'body': f'Erro ao obter bucket disponível: {str(e)}'
+        }
+        print("Erro ao obter bucket disponível:", error_result)
         return error_result
 
 # Simulação para testes locais

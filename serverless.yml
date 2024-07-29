@@ -2,23 +2,83 @@ service: desafio-embarca-aws
 
 provider:
   name: aws
-  runtime: python3.10
+  runtime: python3.9
   region: us-east-1
+  stage: dev
+  environment:
+    BUCKET_NAME: ${env:BUCKET_NAME}
+    DB_HOST: ${env:DB_HOST}
+    DB_USER: ${env:DB_USER}
+    DB_PASSWORD: ${env:DB_PASSWORD}
+    DB_NAME: ${env:DB_NAME}
 
 functions:
-  downloadCsv:
-    handler: handler.download_csv
-    package:
-      include:
-        - requirements.txt
+  downloadCSV:
+    handler: lambda1.downloadCSV
+    events:
+      - http:
+          path: download
+          method: post
 
-  processCsv:
-    handler: handler.process_csv
-  #
+  processCSV:
+    handler: lambda2.processCSV
+    events:
+      - stepFunctions:
+          stateMachine:
+            arn: arn:aws:states:${self:provider.region}:${aws:accountId}:stateMachine:StateMachineName
 
 resources:
   Resources:
-    CsvBucket:
-      Type: AWS::S3::Bucket
+    StateMachineName:
+      Type: AWS::StepFunctions::StateMachine
       Properties:
-        BucketName: desafio-embarca
+        DefinitionString:
+          Fn::Sub: |
+            {
+              "Comment": "State Machine for CSV Processing",
+              "StartAt": "DownloadCSV",
+              "States": {
+                "DownloadCSV": {
+                  "Type": "Task",
+                  "Resource": "${self:provider.endpoint}downloadCSV",
+                  "Next": "ProcessCSV"
+                },
+                "ProcessCSV": {
+                  "Type": "Task",
+                  "Resource": "${self:provider.endpoint}processCSV",
+                  "End": true
+                }
+              }
+            }
+        RoleArn: arn:aws:iam::${aws:accountId}:role/StepFunctionsExecutionRole
+
+plugins:
+  - serverless-python-requirements
+  - serverless-step-functions
+
+package:
+  individually: true
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    zip: true
+    slim: true
+  stepFunctions:
+    stateMachines:
+      default:
+        name: stateMachineName
+        definition:
+          Comment: "State Machine for CSV Processing"
+          StartAt: "DownloadCSV"
+          States:
+            DownloadCSV:
+              Type: Task
+              Resource:
+                Fn::Sub: arn:aws:lambda:${self:provider.region}:${aws:accountId}:function:${self:service}-${self:provider.stage}-downloadCSV
+              Next: "ProcessCSV"
+            ProcessCSV:
+              Type: Task
+              Resource:
+                Fn::Sub: arn:aws:lambda:${self:provider.region}:${aws:accountId}:function:${self:service}-${self:provider.stage}-processCSV
+              End: true

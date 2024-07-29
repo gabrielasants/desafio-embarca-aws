@@ -4,28 +4,56 @@ import psycopg2
 from datetime import datetime
 import os
 
-def lambda_handler(event, context):
-    # Variáveis de ambiente para as configurações do banco de dados
-    db_host = os.environ['DB_HOST']
-    db_name = os.environ['DB_NAME']
-    db_user = os.environ['DB_USER']
-    db_password = os.environ['DB_PASSWORD']
-    db_port = os.environ['DB_PORT']
+def get_secret():
+    secret_name = os.environ['DB_SECRET_ARN']
+    client = boto3.client('secretsmanager')
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+        secret = json.loads(get_secret_value_response['SecretString'])
+        return secret
+    except Exception as e:
+        raise ValueError(f"Error retrieving secret: {str(e)}")
+
+def get_available_bucket(bucket_prefix):
+    s3 = boto3.client('s3')
+    try:
+        response = s3.list_buckets()
+        buckets = response.get('Buckets', [])
+        
+        for bucket in buckets:
+            if bucket['Name'].startswith(bucket_prefix):
+                return bucket['Name']
+        
+        raise ValueError("Nenhum bucket disponível com o prefixo fornecido.")
     
-    # Cliente para interagir com o S3
+    except boto3.exceptions.Boto3Error as e:
+        raise RuntimeError(f"Erro ao listar buckets: {str(e)}")
+
+def lambda_handler(event, context):
+    secret = get_secret()
+    
+    db_host = secret['host']
+    db_name = secret['dbname']
+    db_user = secret['username']
+    db_password = secret['password']
+    db_port = secret['port']
+    
     s3_client = boto3.client('s3')
     
-    # Recuperar informações do evento passado pela Lambda 1
     try:
-        bucket_name = event['bucket_name']
+        bucket_prefix = 'desafio-embarca'
+        bucket_name = get_available_bucket(bucket_prefix)
         file_key = event['file_key']
     except KeyError as e:
         return {
             'statusCode': 400,
             'body': json.dumps(f"Missing required information: {str(e)}")
         }
-
-    # Baixar o arquivo CSV do S3
+    except ValueError as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f"Error getting bucket: {str(e)}")
+        }
     try:
         csv_file = '/tmp/accidents.csv'
         s3_client.download_file(bucket_name, file_key, csv_file)
@@ -35,22 +63,16 @@ def lambda_handler(event, context):
             'body': json.dumps(f"Error downloading file from S3: {str(e)}")
         }
     
-    # Calcular o número de mortos por tipo de veículo
     vehicle_types = ['automovel', 'bicicleta', 'caminhao', 'moto', 'onibus']
     deaths_by_vehicle = {}
 
     try:
         with open(csv_file, 'r', encoding='utf-8') as f:
-            # Ler o arquivo CSV
             headers = f.readline().strip().split(',')
             for line in f:
                 data = line.strip().split(',')
                 row = dict(zip(headers, data))
-                
-                # Obter o trecho da estrada
                 road_name = row['trecho']
-                
-                # Filtrar dados e calcular mortes
                 for vehicle in vehicle_types:
                     if int(row[vehicle]) > 0:
                         if vehicle not in deaths_by_vehicle:
@@ -63,8 +85,6 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Error processing CSV file: {str(e)}")
         }
-    
-    # Conectar ao banco de dados
     try:
         connection = psycopg2.connect(
             host=db_host,
@@ -79,8 +99,6 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Error connecting to database: {str(e)}")
         }
-    
-    # Criar a tabela se não existir
     try:
         create_table_query = """
         CREATE TABLE IF NOT EXISTS accident_stats (
@@ -98,8 +116,6 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Error creating table: {str(e)}")
         }
-    
-    # Inserir os dados no banco de dados
     try:
         insert_query = """
         INSERT INTO accident_stats (created_at, road_name, vehicle, number_deaths)
@@ -115,7 +131,6 @@ def lambda_handler(event, context):
             'body': json.dumps(f"Error inserting data into database: {str(e)}")
         }
     finally:
-        # Fechar a conexão com o banco de dados
         cursor.close()
         connection.close()
 
@@ -123,11 +138,3 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps('Data successfully processed and stored.')
     }
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
-
-logger.info("Connecting to database")
-# Código de conexão e inserção
-logger.info("Data insertion completed successfully")
